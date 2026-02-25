@@ -398,11 +398,15 @@
         if (uploadBtn) uploadBtn.disabled = true;
         if (fileInput) fileInput.disabled = true;
 
+        const csrfInput = uploadForm.querySelector('input[name="csrf_token"]');
+        const csrfToken = (csrfInput && csrfInput.value) ? csrfInput.value : '';
         const formData = new FormData();
         Array.from(fileInput.files).forEach((f) => formData.append('files', f, f.name));
+        if (csrfToken) formData.append('csrf_token', csrfToken);
         const xhr = new XMLHttpRequest();
         xhr.open('POST', uploadForm.getAttribute('action') || '/upload');
         xhr.setRequestHeader('Accept', 'application/json');
+        if (csrfToken) xhr.setRequestHeader('X-CSRF-Token', csrfToken);
         xhr.upload.onprogress = (ev) => {
           if (!ev.lengthComputable) return;
           setOverall(Math.round((ev.loaded / ev.total) * 100));
