@@ -7,6 +7,7 @@ Small Quart web app to upload, list, and delete documents for the main RAG app.
 - **Postgres (`documents` table)**: chunks + embeddings, keyed by `doc_id`.
 
 ## Prereqs
+
 - Python 3.10+ (repo uses 3.12 fine)
 - Environment variables configured (same as `r7jibungotoka/scripts/ingest_pgvector.py`)
   - Postgres: `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE` (+ optional `PGSSLMODE`)
