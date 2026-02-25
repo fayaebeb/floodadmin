@@ -1,0 +1,503 @@
+{% extends "base.html" %}
+{% set active_nav = "files" %}
+
+{% block title %}流域治水 · ファイル{% endblock %}
+
+{% block header %}
+  <div class="page-title">ファイル</div>
+  <div class="page-desc">ファイルをアップロードし、チャンク／画像を確認し、安全に削除できます。</div>
+{% endblock %}
+
+{% block header_actions %}
+  <label class="sr-only" for="q">ファイルを検索</label>
+  <input id="q" class="input" style="min-width: 280px;" placeholder="ファイル名を検索…" />
+  <span class="chip">{{ files|length }} 件</span>
+{% endblock %}
+
+{% block content %}
+  <div class="grid grid-main">
+    <section class="card card--upload">
+      <div class="card__hd">
+        <div>
+          <div class="card__title">アップロードと取り込み</div>
+          <div class="card__sub">Blob にアップロードし、Postgres に取り込みます。</div>
+        </div>
+        <span class="chip">取り込み</span>
+      </div>
+      <div class="card__bd">
+        <form id="uploadForm" action="/upload" method="post" enctype="multipart/form-data" class="grid" style="gap:12px;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <div class="field">
+            <div class="file-picker">
+              <span class="label">ファイル</span>
+              <button id="pickFilesBtn" class="btn btn--sm" type="button">ファイルを選択</button>
+            </div>
+            <label class="sr-only" for="files">ファイルを選択</label>
+            <input id="files" class="sr-only" type="file" name="files" multiple required />
+            <div id="selectedFiles" class="file-pills" aria-live="polite"></div>
+          </div>
+          <button id="uploadBtn" class="btn btn--primary is-inactive" type="submit" aria-disabled="true" disabled title="少なくとも 1 つのファイルを選択してください">
+            アップロード＋取り込み
+          </button>
+
+          <div class="muted-2" style="font-size:.9rem;">
+            ヒント: スクレイピングしたドキュメントの場合、ファイル名は使用したい doc_id と一致させてください。
+          </div>
+
+          <div id="uploadJob" class="grid" style="gap:10px;" hidden>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+              <div>
+                <div class="muted" style="font-size:.85rem;">アップロード進捗</div>
+                <div id="jobHeadline" style="font-weight:750; letter-spacing:.2px;">開始中…</div>
+                <div id="jobSubline" class="muted" style="font-size:.9rem; margin-top:6px;"></div>
+              </div>
+              <span id="jobPct" class="chip chip--ok">0%</span>
+            </div>
+            <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+              <div id="jobBar" class="progress__bar" style="width:0%"></div>
+            </div>
+
+            <div id="jobFiles" class="grid" style="gap:10px; margin-top:2px;"></div>
+            <details style="border-radius:16px; border:1px solid rgba(255,255,255,.10); background: rgba(255,255,255,.03); padding:12px 12px;">
+              <summary class="muted" style="font-size:.85rem;">ログ</summary>
+              <div id="jobLog" class="mono" style="font-size:.9rem; max-height: 260px; overflow:auto; margin-top:10px;"></div>
+            </details>
+            <div id="jobActions" style="display:none; gap:10px; justify-content:flex-end;" class="actions">
+              <button id="jobReset" class="btn btn--sm btn--ghost" type="button">新規アップロード</button>
+              <button id="jobRefresh" class="btn btn--sm" type="button">一覧を更新</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card__hd">
+        <div>
+          <div class="card__title">取り込み済みファイル</div>
+          <div class="card__sub">検索、開く、または関連する Blob／チャンク／画像を含めて削除できます。</div>
+        </div>
+        <span class="chip">{{ files|length }}</span>
+      </div>
+      <div class="card__bd">
+        <div id="fileList" class="list list--scroll">
+          {% for f in files %}
+            <div class="file-row" data-fname="{{ f.display_name|lower }}">
+              <div class="file-meta">
+                <div class="file-name" title="{{ f.display_name }}">{{ f.display_name }}</div>
+                <div class="file-sub">
+                  {{ f.chunks }} チャンク
+                  {% if f.page_min is not none and f.page_max is not none %}
+                    · ページ {{ f.page_min }}–{{ f.page_max }}
+                  {% endif %}
+                </div>
+                <div class="kpi">
+                  {% if f.scraped_site_id %}
+                    <span class="chip">スクレイピング · {{ f.scraped_site_id }}</span>
+                  {% else %}
+                    <span class="chip">手動</span>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="actions">
+                <a class="btn btn--sm" href="/file/{{ f.doc_id }}">開く</a>
+                <form
+                  action="/delete"
+                  method="post"
+                  data-delete-form
+                  data-filename="{{ f.display_name|e }}"
+                  data-confirm-message="「{{ f.display_name|e }}」と関連するすべての Blob／画像／チャンクを削除しますか？"
+                >
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+                  <input type="hidden" name="doc_id" value="{{ f.doc_id }}" />
+                  <button class="btn btn--sm btn--danger" type="submit">削除</button>
+                </form>
+              </div>
+            </div>
+          {% endfor %}
+          {% if files|length == 0 %}
+            <div class="muted">一致する取り込み済みファイルはありません。</div>
+          {% endif %}
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="delete-title" data-delete-modal hidden>
+    <div class="confirm-modal__panel">
+      <div class="confirm-modal__hd">
+        <div class="confirm-modal__title" id="delete-title">削除</div>
+        <button class="btn btn--sm btn--ghost" type="button" data-delete-cancel aria-label="閉じる">閉じる</button>
+      </div>
+      <div class="confirm-modal__bd">
+        <div class="confirm-modal__text" data-delete-message>このファイルを削除しますか？</div>
+      </div>
+      <div class="confirm-modal__ft">
+        <button class="btn btn--sm btn--danger" type="button" data-delete-confirm>削除</button>
+        <button class="btn btn--sm" type="button" data-delete-cancel>キャンセル</button>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  <script nonce="{{ csp_nonce }}">
+    (() => {
+      const q = document.getElementById('q');
+      const list = document.getElementById('fileList');
+      const uploadForm = document.getElementById('uploadForm');
+      const applyFilter = () => {
+        const term = (q?.value || '').trim().toLowerCase();
+        const rows = list?.querySelectorAll('[data-fname]') || [];
+        rows.forEach((row) => {
+          const name = row.getAttribute('data-fname') || '';
+          row.style.display = (!term || name.includes(term)) ? '' : 'none';
+        });
+      };
+      q?.addEventListener('input', applyFilter);
+
+      const fileInput = document.getElementById('files');
+      const pickFilesBtn = document.getElementById('pickFilesBtn');
+      const uploadBtn = document.getElementById('uploadBtn');
+      const selectedFiles = document.getElementById('selectedFiles');
+      const uploadJob = document.getElementById('uploadJob');
+      const jobHeadline = document.getElementById('jobHeadline');
+      const jobSubline = document.getElementById('jobSubline');
+      const jobBar = document.getElementById('jobBar');
+      const jobPct = document.getElementById('jobPct');
+      const jobLog = document.getElementById('jobLog');
+      const jobFiles = document.getElementById('jobFiles');
+      const jobActions = document.getElementById('jobActions');
+      const jobRefresh = document.getElementById('jobRefresh');
+      const jobReset = document.getElementById('jobReset');
+
+      let currentEventSource = null;
+      let uploadInFlight = false;
+      const fileCards = new Map();
+
+      pickFilesBtn?.addEventListener('click', () => fileInput?.click());
+
+      const renderSelectedFiles = () => {
+        if (!selectedFiles) return;
+        const files = Array.from(fileInput?.files || []);
+        selectedFiles.innerHTML = '';
+
+        if (files.length === 0) {
+          const empty = document.createElement('div');
+          empty.className = 'muted-2';
+          empty.style.fontSize = '.9rem';
+          empty.textContent = 'ファイルが選択されていません。';
+          selectedFiles.appendChild(empty);
+          return;
+        }
+
+        files.forEach((file, index) => {
+          const pill = document.createElement('span');
+          pill.className = 'chip chip--file';
+          pill.title = file.name;
+
+          const name = document.createElement('span');
+          name.className = 'chip__text';
+          name.textContent = file.name;
+
+          const removeBtn = document.createElement('button');
+          removeBtn.type = 'button';
+          removeBtn.className = 'chip__x';
+          removeBtn.setAttribute('aria-label', `${file.name} を削除`);
+          removeBtn.title = '削除';
+          removeBtn.textContent = '×';
+          removeBtn.addEventListener('click', () => {
+            const dt = new DataTransfer();
+            Array.from(fileInput?.files || []).forEach((f, i) => {
+              if (i !== index) dt.items.add(f);
+            });
+            if (fileInput) fileInput.files = dt.files;
+            renderSelectedFiles();
+            syncUploadEnabled();
+          });
+
+          pill.append(name, removeBtn);
+          selectedFiles.appendChild(pill);
+        });
+      };
+
+      const syncUploadEnabled = () => {
+        if (!uploadBtn) return;
+        const hasFiles = !!(fileInput?.files && fileInput.files.length > 0);
+        uploadBtn.classList.toggle('is-inactive', !hasFiles);
+        uploadBtn.setAttribute('aria-disabled', String(!hasFiles));
+        uploadBtn.disabled = !hasFiles;
+        uploadBtn.title = hasFiles ? '' : '少なくとも 1 つのファイルを選択してください';
+      };
+
+      const setOverall = (pct) => {
+        const p = Math.max(0, Math.min(100, Number(pct || 0)));
+        if (jobBar) jobBar.style.width = `${p}%`;
+        if (jobPct) jobPct.textContent = `${p}%`;
+      };
+
+      const appendLog = (line) => {
+        if (!jobLog) return;
+        const div = document.createElement('div');
+        div.textContent = line;
+        jobLog.appendChild(div);
+        jobLog.scrollTop = jobLog.scrollHeight;
+      };
+
+      const upsertJobFile = (displayName) => {
+        if (!jobFiles) return null;
+        if (fileCards.has(displayName)) return fileCards.get(displayName);
+        const card = document.createElement('div');
+        card.style.border = '1px solid rgba(255,255,255,.08)';
+        card.style.background = 'rgba(255,255,255,.03)';
+        card.style.borderRadius = '14px';
+        card.style.padding = '12px';
+        card.innerHTML = `
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+            <div style="font-weight:750; letter-spacing:.2px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${displayName}</div>
+            <div class="chip" data-status>待機中</div>
+          </div>
+          <div class="muted" style="font-size:.9rem; margin-top:6px;" data-detail></div>
+        `;
+        jobFiles.appendChild(card);
+        fileCards.set(displayName, card);
+        return card;
+      };
+
+      const setJobFileStatus = (displayName, status, detail) => {
+        const card = upsertJobFile(displayName);
+        if (!card) return;
+        const statusEl = card.querySelector('[data-status]');
+        const detailEl = card.querySelector('[data-detail]');
+        statusEl.textContent = status;
+        detailEl.textContent = detail || '';
+        statusEl.classList.remove('chip--ok', 'chip--warn', 'chip--danger');
+        if (status === 'error') statusEl.classList.add('chip--danger');
+        if (status === 'done') statusEl.classList.add('chip--ok');
+        if (status === 'running') statusEl.classList.add('chip--warn');
+      };
+
+      const resetJobUI = () => {
+        uploadInFlight = false;
+        if (uploadJob) uploadJob.hidden = true;
+        if (jobHeadline) jobHeadline.textContent = '開始中…';
+        if (jobSubline) jobSubline.textContent = '';
+        if (jobLog) jobLog.innerHTML = '';
+        if (jobFiles) jobFiles.innerHTML = '';
+        if (jobActions) jobActions.style.display = 'none';
+        fileCards.clear();
+        setOverall(0);
+        if (currentEventSource) {
+          currentEventSource.close();
+          currentEventSource = null;
+        }
+      };
+
+      const startJobStream = (jobId, eventsUrl) => {
+        if (uploadJob) uploadJob.hidden = false;
+        const url = eventsUrl || `/events/${jobId}`;
+
+        if (currentEventSource) currentEventSource.close();
+        currentEventSource = new EventSource(url);
+
+        currentEventSource.onmessage = (msg) => {
+          let ev;
+          try { ev = JSON.parse(msg.data); } catch { return; }
+
+          if (typeof ev.overall_percent !== 'undefined') setOverall(ev.overall_percent);
+
+          if (ev.type === 'status') {
+            if (jobHeadline) jobHeadline.textContent = '準備中…';
+            appendLog(`status: ${ev.status}`);
+            return;
+          }
+
+          if (ev.type === 'file') {
+            const name = ev.display_name || 'ファイル';
+            if (ev.status === 'start') {
+              if (jobHeadline) jobHeadline.textContent = `${name} を取り込み中`;
+              setJobFileStatus(name, 'running', '開始中…');
+              appendLog(`file start: ${name}`);
+            } else if (ev.status === 'done') {
+              setJobFileStatus(name, 'done', `${ev.chunks || 0} チャンク`);
+              appendLog(`file done: ${name} (${ev.chunks || 0} chunks)`);
+            } else if (ev.status === 'error') {
+              setJobFileStatus(name, 'error', ev.error || 'エラー');
+              appendLog(`file error: ${name} (${ev.error || '不明なエラー'})`);
+            }
+            return;
+          }
+
+          if (ev.type === 'progress') {
+            const name = ev.display_name || 'ファイル';
+            const stage = ev.stage || '処理中';
+            const fp = (typeof ev.file_percent !== 'undefined') ? `${ev.file_percent}%` : '';
+            if (jobHeadline) jobHeadline.textContent = `${name} を取り込み中`;
+            if (jobSubline) jobSubline.textContent = `${stage}${fp ? ` · ${fp}` : ''}${ev.message ? ` · ${ev.message}` : ''}`;
+            setJobFileStatus(name, 'running', `${stage}${fp ? ` · ${fp}` : ''}`);
+            appendLog(`progress: ${name} · ${stage}${fp ? ` · ${fp}` : ''}`);
+            return;
+          }
+
+          if (ev.type === 'done') {
+            if (ev.ok) {
+              if (jobHeadline) jobHeadline.textContent = '完了';
+              if (jobSubline) jobSubline.textContent = 'アップロードと取り込みが完了しました。';
+              appendLog('done: ok');
+              if (fileInput) fileInput.value = '';
+              renderSelectedFiles();
+            } else {
+              if (jobHeadline) jobHeadline.textContent = '失敗';
+              if (jobSubline) jobSubline.textContent = ev.error || 'ジョブに失敗しました';
+              appendLog(`done: error (${ev.error || 'unknown'})`);
+            }
+
+            if (jobActions) jobActions.style.display = '';
+            if (fileInput) fileInput.disabled = false;
+            uploadInFlight = false;
+            syncUploadEnabled();
+            currentEventSource?.close();
+            currentEventSource = null;
+          }
+        };
+
+        currentEventSource.onerror = () => {
+          appendLog('イベントストリームエラー（再試行します）');
+        };
+      };
+      fileInput?.addEventListener('change', () => {
+        renderSelectedFiles();
+        syncUploadEnabled();
+      });
+      renderSelectedFiles();
+      syncUploadEnabled();
+
+      jobRefresh?.addEventListener('click', () => window.location.reload());
+      jobReset?.addEventListener('click', () => {
+        if (fileInput) fileInput.value = '';
+        renderSelectedFiles();
+        resetJobUI();
+        syncUploadEnabled();
+      });
+
+      uploadForm?.addEventListener('submit', (e) => {
+        if (!fileInput || !fileInput.files || fileInput.files.length === 0) return;
+        e.preventDefault();
+        if (uploadInFlight) return;
+        uploadInFlight = true;
+
+        if (uploadJob) uploadJob.hidden = false;
+        if (jobHeadline) jobHeadline.textContent = 'アップロード中…';
+        if (jobSubline) jobSubline.textContent = 'サーバーにファイルを送信しています。';
+        if (jobLog) jobLog.innerHTML = '';
+        if (jobFiles) jobFiles.innerHTML = '';
+        if (jobActions) jobActions.style.display = 'none';
+        fileCards.clear();
+        setOverall(0);
+
+        if (uploadBtn) uploadBtn.disabled = true;
+        if (fileInput) fileInput.disabled = true;
+
+        const formData = new FormData();
+        Array.from(fileInput.files).forEach((f) => formData.append('files', f, f.name));
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', uploadForm.getAttribute('action') || '/upload');
+        xhr.setRequestHeader('Accept', 'application/json');
+        xhr.upload.onprogress = (ev) => {
+          if (!ev.lengthComputable) return;
+          setOverall(Math.round((ev.loaded / ev.total) * 100));
+        };
+        xhr.onload = () => {
+          let data;
+          try { data = JSON.parse(xhr.responseText || '{}'); } catch { data = null; }
+          if (xhr.status >= 200 && xhr.status < 300 && data?.ok && data?.job_id) {
+            appendLog(`job created: ${data.job_id}`);
+            if (jobHeadline) jobHeadline.textContent = '開始中…';
+            if (jobSubline) jobSubline.textContent = 'ファイルを取り込んでいます。';
+            startJobStream(data.job_id, data.events_url);
+            return;
+          }
+          const msg = (data && (data.error || data.message)) || `アップロードに失敗しました (${xhr.status})`;
+          if (jobHeadline) jobHeadline.textContent = '失敗';
+          if (jobSubline) jobSubline.textContent = msg;
+          appendLog(`error: ${msg}`);
+          if (jobActions) jobActions.style.display = '';
+          if (fileInput) fileInput.disabled = false;
+          uploadInFlight = false;
+          syncUploadEnabled();
+        };
+        xhr.onerror = () => {
+          if (jobHeadline) jobHeadline.textContent = '失敗';
+          if (jobSubline) jobSubline.textContent = 'アップロード中にネットワークエラーが発生しました。';
+          appendLog('error: network error');
+          if (jobActions) jobActions.style.display = '';
+          if (fileInput) fileInput.disabled = false;
+          uploadInFlight = false;
+          syncUploadEnabled();
+        };
+        xhr.send(formData);
+      });
+    })();
+
+    (() => {
+      const modal = document.querySelector('[data-delete-modal]');
+      const messageEl = document.querySelector('[data-delete-message]');
+      const cancelBtns = Array.from(document.querySelectorAll('[data-delete-cancel]'));
+      const confirmBtn = document.querySelector('[data-delete-confirm]');
+      const deleteForms = Array.from(document.querySelectorAll('form[data-delete-form]'));
+
+      if (!modal || !confirmBtn || deleteForms.length === 0) return;
+
+      let activeForm = null;
+
+      const open = (form) => {
+        activeForm = form;
+        const filename = form?.dataset?.filename || 'ファイル';
+        const msg = form?.dataset?.confirmMessage || `「${filename}」を削除しますか？`;
+        if (messageEl) messageEl.textContent = msg;
+        modal.hidden = false;
+        requestAnimationFrame(() => modal.classList.add('is-open'));
+        confirmBtn.focus?.();
+      };
+
+      const close = () => {
+        modal.classList.remove('is-open');
+        window.setTimeout(() => {
+          modal.hidden = true;
+        }, 180);
+        activeForm = null;
+      };
+
+      deleteForms.forEach((form) => {
+        form.addEventListener('submit', (e) => {
+          if (form.dataset.deleteConfirmed === '1') return;
+          e.preventDefault();
+          open(form);
+        });
+      });
+
+      confirmBtn.addEventListener('click', () => {
+        if (!activeForm) return close();
+        activeForm.dataset.deleteConfirmed = '1';
+        if (typeof activeForm.requestSubmit === 'function') {
+          activeForm.requestSubmit();
+        } else {
+          activeForm.submit();
+        }
+      });
+
+      cancelBtns.forEach((btn) => btn.addEventListener('click', () => close()));
+
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) close();
+      });
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        if (modal.hidden) return;
+        e.preventDefault();
+        close();
+      });
+    })();
+  </script>
+{% endblock %}

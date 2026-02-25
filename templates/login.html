@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ja">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#060712" />
+  <title>流域治水 · ログイン</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}" />
+</head>
+
+<body>
+  <main class="auth-layout" role="main">
+    <section class="card auth-card" aria-label="ログイン">
+      <div class="card__hd">
+        <a class="auth-brand-link" href="{{ url_for('login_get') }}" aria-label="流域治水 管理ポータル">
+          <span class="auth-brand-mark" aria-hidden="true">
+            <img src="{{ url_for('static', filename='images/flood_logo.png') }}" alt="" />
+          </span>
+          <span class="auth-brand-text">
+            <span class="auth-brand-title">流域治水</span>
+            <span class="auth-brand-sub">管理ポータル</span>
+          </span>
+        </a>
+        <div class="auth-head">
+          <div class="auth-title">ログイン</div>
+          <div class="auth-sub">管理者アカウントでログインしてください。</div>
+        </div>
+      </div>
+
+      <div class="card__bd">
+        {% if message %}
+        <div class="alert" role="status" style="margin-bottom:14px;">
+          {{ message }}
+        </div>
+        {% endif %}
+
+        <form method="post" action="{{ url_for('login_post') }}" class="grid" style="gap:12px; margin-top:4px;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <input type="hidden" name="next" value="{{ next or '/' }}" />
+
+          <div class="field">
+            <label class="label" for="userid">ユーザーID</label>
+            <input id="userid" class="input mono" name="userid" autocomplete="username" placeholder="admin" required autofocus />
+          </div>
+
+          <div class="field">
+            <label class="label" for="password">パスワード</label>
+            <input id="password" class="input" name="password" type="password" autocomplete="current-password" required />
+          </div>
+
+          <div style="display:flex; justify-content:flex-end; gap:10px; align-items:center; margin-top:6px;">
+            <button class="btn btn--primary" type="submit">ログイン</button>
+          </div>
+        </form>
+      </div>
+    </section>
+  </main>
+</body>
+
+</html>

@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% set active_nav = "files" %}
+
+{% block title %}流域治水 · Upload job{% endblock %}
+
+{% block header %}
+  <div class="muted" style="font-size:.92rem;">
+    <a href="/" style="text-decoration:none;">← Back</a>
+  </div>
+  <div class="page-title" style="margin-top:6px;">Upload + ingest</div>
+  <div class="page-desc">Live progress for this job.</div>
+{% endblock %}
+
+{% block header_actions %}
+  <span class="chip">job <span class="mono">{{ job_id }}</span></span>
+  <span id="overallPct" class="chip chip--ok">0%</span>
+{% endblock %}
+
+{% block content %}
+  <section class="card" style="margin-bottom:14px;">
+    <div class="card__bd">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:14px;">
+        <div>
+          <div class="muted" style="font-size:.85rem;">Overall</div>
+          <div id="headline" style="font-weight:750; letter-spacing:.2px;">Starting…</div>
+          <div id="subline" class="muted" style="font-size:.9rem; margin-top:6px;"></div>
+        </div>
+      </div>
+      <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" style="margin-top:14px;">
+        <div id="bar" class="progress__bar" style="width:0%"></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="grid grid-2">
+    <section class="card">
+      <div class="card__hd">
+        <div class="card__title">ファイル</div>
+        <span class="chip">Status</span>
+      </div>
+      <div class="card__bd">
+        <div id="files" class="grid" style="gap:10px;"></div>
+        <div id="doneActions" style="margin-top:14px; display:none;">
+          <a class="btn" href="/">ファイル一覧に戻る</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card__hd">
+        <div class="card__title">Log</div>
+        <span class="chip mono">events</span>
+      </div>
+      <div class="card__bd">
+        <div id="log" class="mono" style="font-size:.9rem; max-height: 360px; overflow:auto; border:1px solid rgba(255,255,255,.08); border-radius:14px; padding:12px; background: rgba(255,255,255,.03);"></div>
+      </div>
+    </section>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  <script nonce="{{ csp_nonce }}">
+      const jobId = {{ job_id|tojson }};
+      const es = new EventSource(`/events/${jobId}`);
+
+      const bar = document.getElementById('bar');
+      const overallPct = document.getElementById('overallPct');
+      const headline = document.getElementById('headline');
+      const subline = document.getElementById('subline');
+      const logEl = document.getElementById('log');
+      const filesEl = document.getElementById('files');
+      const doneActions = document.getElementById('doneActions');
+
+      const fileCards = new Map(); // display_name -> element
+
+      function setOverall(pct) {
+        const p = Math.max(0, Math.min(100, Number(pct || 0)));
+        bar.style.width = `${p}%`;
+        overallPct.textContent = `${p}%`;
+      }
+
+      function appendLog(line) {
+        const div = document.createElement('div');
+        div.textContent = line;
+        logEl.appendChild(div);
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      function upsertFile(displayName) {
+        if (fileCards.has(displayName)) return fileCards.get(displayName);
+        const card = document.createElement('div');
+        card.style.border = '1px solid rgba(255,255,255,.08)';
+        card.style.background = 'rgba(255,255,255,.03)';
+        card.style.borderRadius = '14px';
+        card.style.padding = '12px';
+        card.innerHTML = `
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+            <div style="font-weight:750; letter-spacing:.2px;">${displayName}</div>
+            <div class="chip" data-status>queued</div>
+          </div>
+          <div class="muted" style="font-size:.9rem; margin-top:6px;" data-detail></div>
+        `;
+        filesEl.appendChild(card);
+        fileCards.set(displayName, card);
+        return card;
+      }
+
+      function setFileStatus(displayName, status, detail) {
+        const card = upsertFile(displayName);
+        const statusEl = card.querySelector('[data-status]');
+        const detailEl = card.querySelector('[data-detail]');
+        statusEl.textContent = status;
+        detailEl.textContent = detail || '';
+        statusEl.classList.remove('chip--ok', 'chip--warn', 'chip--danger');
+        if (status === 'error') statusEl.classList.add('chip--danger');
+        if (status === 'done') statusEl.classList.add('chip--ok');
+        if (status === 'running') statusEl.classList.add('chip--warn');
+      }
+
+      es.onmessage = (msg) => {
+        let ev;
+        try { ev = JSON.parse(msg.data); } catch { return; }
+
+        if (typeof ev.overall_percent !== 'undefined') setOverall(ev.overall_percent);
+
+        if (ev.type === 'status') {
+          headline.textContent = 'Preparing…';
+          appendLog(`status: ${ev.status}`);
+          return;
+        }
+
+        if (ev.type === 'file') {
+          const name = ev.display_name || 'file';
+          if (ev.status === 'start') {
+            headline.textContent = `Ingesting ${name}`;
+            setFileStatus(name, 'running', 'starting…');
+            appendLog(`file start: ${name}`);
+          } else if (ev.status === 'done') {
+            setFileStatus(name, 'done', `${ev.chunks || 0} chunks`);
+            appendLog(`file done: ${name} (${ev.chunks || 0} chunks)`);
+          } else if (ev.status === 'error') {
+            setFileStatus(name, 'error', ev.error || 'error');
+            appendLog(`file error: ${name} (${ev.error || 'unknown error'})`);
+          }
+          return;
+        }
+
+        if (ev.type === 'progress') {
+          const name = ev.display_name || 'file';
+          const stage = ev.stage || 'working';
+          const fp = (typeof ev.file_percent !== 'undefined') ? `${ev.file_percent}%` : '';
+          headline.textContent = `Ingesting ${name}`;
+          subline.textContent = `${stage}${fp ? ` · ${fp}` : ''}${ev.message ? ` · ${ev.message}` : ''}`;
+          setFileStatus(name, 'running', `${stage}${fp ? ` · ${fp}` : ''}`);
+          appendLog(`progress: ${name} · ${stage}${fp ? ` · ${fp}` : ''}`);
+          return;
+        }
+
+        if (ev.type === 'done') {
+          if (ev.ok) {
+            headline.textContent = 'Completed';
+            subline.textContent = 'Upload + ingest finished.';
+            appendLog('done: ok');
+          } else {
+            headline.textContent = 'Failed';
+            subline.textContent = ev.error || 'Job failed';
+            appendLog(`done: error (${ev.error || 'unknown'})`);
+          }
+          doneActions.style.display = '';
+          es.close();
+        }
+      };
+
+      es.onerror = () => {
+        appendLog('event stream error (will retry)');
+      };
+    </script>
+{% endblock %}

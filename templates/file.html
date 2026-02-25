@@ -1,0 +1,284 @@
+{% extends "base.html" %}
+{% set active_nav = "files" %}
+
+{% block title %}流域治水 · {{ display_name }}{% endblock %}
+
+{% block header %}
+  <div class="muted" style="font-size:.92rem;">
+    <a href="/" style="text-decoration:none;">← ファイル一覧に戻る</a>
+  </div>
+  <div class="page-title" style="margin-top:6px;">{{ display_name }}</div>
+  <div class="kpi">
+    {% if scraped %}
+      <span class="chip">scraped · {{ scraped.site_id }}</span>
+    {% else %}
+      <span class="chip">manual</span>
+    {% endif %}
+    <span class="chip">{{ chunks_total }} chunks</span>
+    <span class="chip">{{ images_total }} images</span>
+  </div>
+{% endblock %}
+
+{% block header_actions %}
+  {% for s in sources %}
+    <a class="btn btn--sm" href="/blob/{{ s }}">ダウンロード</a>
+  {% endfor %}
+  <form
+    action="/delete"
+    method="post"
+    data-delete-form
+    data-filename="{{ display_name|e }}"
+    data-confirm-message="「{{ display_name|e }}」と関連するすべての Blob／画像／チャンクを削除しますか？"
+  >
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <input type="hidden" name="doc_id" value="{{ doc_id }}" />
+    <button class="btn btn--sm btn--danger" type="submit">削除</button>
+  </form>
+{% endblock %}
+
+{% block content %}
+  <div class="grid grid-split">
+    <section>
+      <div class="card">
+        <div class="card__hd">
+          <div>
+            <div class="card__title">画像</div>
+            <div class="card__sub">このファイルに関連付けられた抽出済み画像です。</div>
+          </div>
+          <span class="chip">{{ images_total }}</span>
+        </div>
+        <div class="card__bd">
+          {% if images_total == 0 %}
+            <div class="muted">抽出された画像はありません。</div>
+          {% endif %}
+
+          {% for s, imgs in images_by_source.items() %}
+            {% if imgs|length > 0 %}
+              <div data-img-source style="margin-top:14px;">
+                <div class="muted" style="font-size:.85rem; margin-bottom:10px;">
+                  ソース: <span class="mono">{{ s }}</span>
+                </div>
+                <div class="grid grid-2" style="gap:10px;">
+                  {% for img in imgs %}
+                    <div data-img-item>
+                      <a href="/blob/{{ img.name }}" style="text-decoration:none;">
+                        <img
+                          class="thumb"
+                          src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="
+                          data-src="/blob/{{ img.name }}"
+                          alt="{{ img.name }}"
+                          loading="lazy"
+                        />
+                      </a>
+                    </div>
+                  {% endfor %}
+                </div>
+              </div>
+            {% endif %}
+          {% endfor %}
+
+          <div id="imagesControls" class="toolbar" style="display:none; justify-content:space-between; margin-top:14px;">
+            <div id="imagesCounter" class="muted" style="font-size:.9rem;"></div>
+            <button id="loadMoreImages" class="btn btn--sm" type="button">もっと見る</button>
+          </div>
+        </div>
+      </div>
+
+      <details class="tech-details" style="margin-top:14px;">
+        <summary class="muted">技術的な詳細</summary>
+        <div class="tech-details__body" style="margin-top:12px;">
+          <div class="muted" style="font-size:.85rem;">doc_id</div>
+          <div class="mono" style="font-size:.92rem; margin-top:6px;">{{ doc_id }}</div>
+
+          <div class="muted" style="font-size:.85rem; margin-top:14px;">sources (metadata.source)</div>
+          <div style="margin-top:8px; display:flex; flex-direction:column; gap:6px;">
+            {% for s in sources %}
+              <div class="mono" style="font-size:.9rem;"><a href="/blob/{{ s }}" style="text-decoration:none;">{{ s }}</a></div>
+            {% endfor %}
+          </div>
+
+          {% if raw_prefix %}
+            <div class="muted" style="font-size:.85rem; margin-top:14px;">scraper raw blobs</div>
+            <div class="mono" style="font-size:.9rem; margin-top:6px;">{{ raw_prefix }}</div>
+            <div style="margin-top:10px; display:flex; flex-direction:column; gap:6px;">
+              {% if raw_blobs|length == 0 %}
+                <div class="muted" style="font-size:.9rem;">No raw blobs found (or not accessible).</div>
+              {% endif %}
+              {% for b in raw_blobs %}
+                <div class="mono" style="font-size:.9rem;"><a href="/blob/{{ b.name }}" style="text-decoration:none;">{{ b.name }}</a></div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </div>
+      </details>
+    </section>
+
+    <section class="card card--chunks">
+      <div class="card__hd">
+        <div>
+          <div class="card__title">チャンク</div>
+          <div class="card__sub">ページ {{ chunks_page }} / {{ chunks_total_pages }} · {{ chunks_total }}件中 {{ chunks|length }}件を表示</div>
+        </div>
+        <div class="toolbar">
+          {% if chunks_page > 1 %}
+            <a class="btn btn--sm" href="/file/{{ doc_id }}?page={{ chunks_page - 1 }}">前へ</a>
+          {% endif %}
+          {% if chunks_page < chunks_total_pages %}
+            <a class="btn btn--sm" href="/file/{{ doc_id }}?page={{ chunks_page + 1 }}">次へ</a>
+          {% endif %}
+        </div>
+      </div>
+      <div class="card__bd">
+        {% if chunks|length == 0 %}
+          <div class="muted">No chunks found for this file.</div>
+        {% endif %}
+
+        <div class="list list--scroll chunks-list">
+          {% for c in chunks %}
+            <details>
+              <summary style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+                <span class="mono">チャンク {{ c.chunk_index }}</span>
+                <span class="muted" style="font-size:.85rem;">
+                  {% if c.page_start is not none %}page {{ c.page_start }}{% endif %}
+                </span>
+              </summary>
+              <div class="chunk">{{ c.content }}</div>
+            </details>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="delete-title" data-delete-modal hidden>
+    <div class="confirm-modal__panel">
+      <div class="confirm-modal__hd">
+        <div class="confirm-modal__title" id="delete-title">削除</div>
+        <button class="btn btn--sm btn--ghost" type="button" data-delete-cancel aria-label="閉じる">閉じる</button>
+      </div>
+      <div class="confirm-modal__bd">
+        <div class="confirm-modal__text" data-delete-message>このファイルを削除しますか？</div>
+      </div>
+      <div class="confirm-modal__ft">
+        <button class="btn btn--sm btn--danger" type="button" data-delete-confirm>削除</button>
+        <button class="btn btn--sm" type="button" data-delete-cancel>キャンセル</button>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  <script nonce="{{ csp_nonce }}">
+    (() => {
+      const INITIAL_COUNT = 3;
+      const STEP_COUNT = 12;
+
+      const items = Array.from(document.querySelectorAll('[data-img-item]'));
+      const sources = Array.from(document.querySelectorAll('[data-img-source]'));
+      const controls = document.getElementById('imagesControls');
+      const counter = document.getElementById('imagesCounter');
+      const button = document.getElementById('loadMoreImages');
+
+      if (!items.length) return;
+
+      let shownCount = 0;
+
+      const setImageLoaded = (item) => {
+        const img = item.querySelector('img[data-src]');
+        if (!img) return;
+        if (img.getAttribute('src') === img.getAttribute('data-src')) return;
+        img.setAttribute('src', img.getAttribute('data-src'));
+      };
+
+      const update = () => {
+        const clamped = Math.min(shownCount, items.length);
+        items.forEach((item, idx) => {
+          const shouldShow = idx < clamped;
+          item.style.display = shouldShow ? '' : 'none';
+          if (shouldShow) setImageLoaded(item);
+        });
+
+        sources.forEach((source) => {
+          const hasVisible = Array.from(source.querySelectorAll('[data-img-item]')).some(
+            (item) => item.style.display !== 'none'
+          );
+          source.style.display = hasVisible ? '' : 'none';
+        });
+
+        if (controls) controls.style.display = items.length > INITIAL_COUNT ? 'flex' : 'none';
+        if (counter) counter.textContent = `Showing ${clamped} of ${items.length}`;
+        if (button) button.style.display = clamped < items.length ? '' : 'none';
+      };
+
+      const showMore = () => {
+        shownCount = Math.min(shownCount + STEP_COUNT, items.length);
+        update();
+      };
+
+      shownCount = Math.min(INITIAL_COUNT, items.length);
+      button?.addEventListener('click', showMore);
+      update();
+    })();
+
+    (() => {
+      const modal = document.querySelector('[data-delete-modal]');
+      const messageEl = document.querySelector('[data-delete-message]');
+      const cancelBtns = Array.from(document.querySelectorAll('[data-delete-cancel]'));
+      const confirmBtn = document.querySelector('[data-delete-confirm]');
+      const deleteForms = Array.from(document.querySelectorAll('form[data-delete-form]'));
+
+      if (!modal || !confirmBtn || deleteForms.length === 0) return;
+
+      let activeForm = null;
+
+      const open = (form) => {
+        activeForm = form;
+        const filename = form?.dataset?.filename || 'ファイル';
+        const msg = form?.dataset?.confirmMessage || `「${filename}」を削除しますか？`;
+        if (messageEl) messageEl.textContent = msg;
+        modal.hidden = false;
+        requestAnimationFrame(() => modal.classList.add('is-open'));
+        confirmBtn.focus?.();
+      };
+
+      const close = () => {
+        modal.classList.remove('is-open');
+        window.setTimeout(() => {
+          modal.hidden = true;
+        }, 180);
+        activeForm = null;
+      };
+
+      deleteForms.forEach((form) => {
+        form.addEventListener('submit', (e) => {
+          if (form.dataset.deleteConfirmed === '1') return;
+          e.preventDefault();
+          open(form);
+        });
+      });
+
+      confirmBtn.addEventListener('click', () => {
+        if (!activeForm) return close();
+        activeForm.dataset.deleteConfirmed = '1';
+        if (typeof activeForm.requestSubmit === 'function') {
+          activeForm.requestSubmit();
+        } else {
+          activeForm.submit();
+        }
+      });
+
+      cancelBtns.forEach((btn) => btn.addEventListener('click', () => close()));
+
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) close();
+      });
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        if (modal.hidden) return;
+        e.preventDefault();
+        close();
+      });
+    })();
+  </script>
+{% endblock %}

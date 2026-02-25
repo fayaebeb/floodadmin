@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="ja">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#060712" />
+  <meta name="csrf-token" content="{{ csrf_token }}" />
+    <title>{% block title %}流域治水 · 管理ポータル{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}" />
+  {% block head %}{% endblock %}
+</head>
+
+<body>
+  <div class="app-overlay" data-sidebar-overlay></div>
+
+  <div class="app-shell">
+    <aside class="app-sidebar" aria-label="メイン">
+      <div class="app-sidebar__brand">
+        <a class="brand" href="/">
+          <span class="brand__mark">
+              <img src="{{ url_for('static', filename='images/flood_logo.png') }}" alt="流域治水 管理ポータル" />
+            </span>
+            <span class="brand__text">
+              <span class="brand__title">流域治水</span>
+              <span class="brand__sub">管理ポータル</span>
+            </span>
+          </a>
+        <button class="sidebar-collapse-toggle" type="button" data-sidebar-collapse aria-pressed="false"
+          aria-label="サイドバーを折りたたむ" title="サイドバーを折りたたむ"></button>
+        <button class="btn btn--sm sidebar-toggle" type="button" data-sidebar-close
+          aria-label="メニューを閉じる">閉じる</button>
+      </div>
+
+      <nav class="nav" aria-label="ナビゲーション">
+        <a href="/" {% if active_nav=='files' %}aria-current="page" {% endif %}>
+          <img class="nav__icon-img" src="{{ url_for('static', filename='images/files.svg') }}" alt=""
+            aria-hidden="true" />
+          <span class="nav__label">ファイル</span>
+        </a>
+        <a href="/sites" {% if active_nav=='sites' %}aria-current="page" {% endif %}>
+          <img class="nav__icon-img" src="{{ url_for('static', filename='images/web.svg') }}" alt=""
+            aria-hidden="true" />
+          <span class="nav__label">サイト</span>
+        </a>
+      </nav>
+
+      <div class="sidebar-foot">
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          {% if auth_enabled %}
+            {% if auth_userid %}<span class="chip chip--ok mono">{{ auth_userid }}</span>{% endif %}
+          {% else %}
+            <span class="chip chip--warn">認証なし</span>
+          {% endif %}
+        </div>
+        {% if auth_enabled and auth_userid %}
+          <form method="post" action="{{ url_for('logout_post') }}" style="margin-top:12px;" data-logout-form>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+            <button class="btn btn--sm btn--ghost" type="submit" style="width:100%;">ログアウト</button>
+          </form>
+        {% endif %}
+      </div>
+    </aside>
+
+    <div class="app-main">
+      <header class="app-topbar">
+        <div class="topbar-inner">
+          <div>
+            {% block header %}
+            <div class="page-title">管理</div>
+            <div class="page-desc">ファイル、チャンク、画像、スクレイパーサイトを管理します。</div>
+            {% endblock %}
+          </div>
+          <div class="actions">
+            <button class="btn btn--sm btn--ghost sidebar-toggle" type="button" data-sidebar-open
+              aria-label="メニューを開く">
+              メニュー
+            </button>
+            {% block header_actions %}{% endblock %}
+          </div>
+        </div>
+      </header>
+
+      <main class="content content--wide {% block content_class %}{% endblock %}" role="main">
+        {% if message %}
+        <div class="alert" role="status" style="margin-bottom:14px;">
+          {{ message }}
+        </div>
+        {% endif %}
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </div>
+
+  <div class="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="logout-title" data-logout-modal hidden>
+    <div class="confirm-modal__panel">
+      <div class="confirm-modal__hd">
+        <div class="confirm-modal__title" id="logout-title">ログアウト</div>
+        <button class="btn btn--sm btn--ghost" type="button" data-logout-cancel aria-label="閉じる">閉じる</button>
+      </div>
+      <div class="confirm-modal__bd">
+        <div class="confirm-modal__text">ログアウトしますか？</div>
+      </div>
+      <div class="confirm-modal__ft">
+        <button class="btn btn--primary" type="button" data-logout-confirm>ログアウト</button>
+        <button class="btn" type="button" data-logout-cancel>キャンセル</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+
+</html>

@@ -1,0 +1,38 @@
+name: Deploy adminportal to Azure App Service
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch: {}
+
+env:
+  AZURE_WEBAPP_NAME: "<your-app-name>"
+
+concurrency:
+  group: azure-appservice-${{ env.AZURE_WEBAPP_NAME }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create deploy zip
+        run: |
+          zip -r deploy.zip . \
+            -x ".git/*" \
+            -x ".venv/*" \
+            -x "__pycache__/*" \
+            -x ".pytest_cache/*" \
+            -x "deploy.zip"
+
+      - name: Wait for App Service SCM readiness
+        run: sleep 45
+
+      - name: Deploy to Azure App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE }}
+          package: deploy.zip
